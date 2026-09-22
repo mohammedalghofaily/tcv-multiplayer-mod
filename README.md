@@ -32,7 +32,8 @@ in one place so you're not all sat looking at different numbers.
 Works for the normal game show and for dub mode, where you pick which character
 you're dubbing and then watch the finished thing together.
 
-**Windows 0.5.1, 0.5.2 dev-2, and 0.5.3. You need to own the game.**
+**Windows 0.5.1, 0.5.2 dev-2, and 0.5.3, plus Linux 0.5.3 ([see linux](#linux)).
+You need to own the game.**
 
 ## contents
 
@@ -41,6 +42,7 @@ you're dubbing and then watch the finished thing together.
 - [You need to own the game](#you-need-to-own-the-game)
 - [Installing](#installing)
   - [Command line options](#command-line-options)
+  - [Linux](#linux)
 - [Setting up a game](#setting-up-a-game)
 - [Playing](#playing)
 - [Community packs (experimental)](#community-packs-experimental)
@@ -160,6 +162,46 @@ python install_mod.py "C:\path\to\TheChoicerVoicer_0-5-1 stable.exe"
 | `--keep-work` | keep the decompiled project instead of binning it |
 | `--project DIR` | patch a decompiled project and stop, for modders |
 | `--zip-logs` | bundle this tool's logs and the game's own logs into a zip on your Desktop and exit — no game exe needed |
+
+### linux
+
+The installer runs on Linux too and builds a native Linux game, no Wine or
+Proton involved. It downloads the Linux builds of gdRE and Godot instead of the
+Windows ones, and exports with the Linux template.
+
+Grab the Linux download of the game from itch, unzip this repo, and from a
+terminal in its folder:
+
+```
+./Install.sh
+```
+
+or point it straight at your copy:
+
+```
+python3 install_mod.py "$HOME/Games/TheChoicerVoicer/TheChoicerVoicer_0-5-3 standard.x86_64"
+```
+
+You need `python3`, which nearly every distro has already. Without a path it
+looks in Downloads, Desktop, Documents, `~/Games`, the itch app folder and
+your Steam libraries. It leaves `TheChoicerVoicer-Multiplayer-1.1.9.x86_64`
+next to the installer, already marked executable, so just run it.
+
+In principle it can take the Windows exe and still build you a Linux game,
+since gdRE unpacks either, but that hasn't been tried. Use the Linux download
+if you can.
+
+Saves and packs live in `~/.local/share/YeahMaybe/ChoicerVoicer` on Linux
+(or `$XDG_DATA_HOME/YeahMaybe/ChoicerVoicer`), which is where the normal Linux
+build already keeps them, so the modded one sees the same packs. If you used to
+play the Windows exe through Wine or Proton, your packs are sat in that
+prefix's `AppData/Roaming/YeahMaybe/ChoicerVoicer` instead; copy
+`game/packs_voice` across. Logs and `--zip-logs` look in the Linux folder.
+
+A Linux player and a Windows player can be in the same lobby as long as
+you're both on the same game version and the same mod build. It's the same
+netcode on both ends. The headless host/client test passes on Linux, but a
+real match between a Linux and a Windows machine hasn't been played yet.
 
 ## setting up a game
 
@@ -733,8 +775,10 @@ against a clean decompile with the node path fix applied.
   reliable entry points if a future game build changes Extras.
 - The community installer supports ZIP archives only, has no update screen, and
   restarts canceled downloads rather than resuming their partial files.
-- Windows 0.5.1, 0.5.2 dev-2, and 0.5.3. Anything else fails with a clear error
-  when it goes to patch it.
+- Windows 0.5.1, 0.5.2 dev-2, and 0.5.3, and Linux 0.5.3. Anything else fails
+  with a clear error when it goes to patch it.
+- Linux builds are x86_64 only, and Linux-to-Windows matches haven't had much
+  testing yet.
 - Everyone needs the same build. The mod checks and kicks you out with a message
   if you don't, but it can't mix a 0.5.1 host with a 0.5.2 or 0.5.3 client.
 - Twitch modes are singleplayer, haven't touched them.

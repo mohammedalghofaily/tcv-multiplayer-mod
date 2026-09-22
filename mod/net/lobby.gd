@@ -77,6 +77,7 @@ func _build_ui() -> void:
 	column.add_child(build)
 
 	var default_name: String = OS.get_environment("USERNAME")
+	if default_name.is_empty(): default_name = OS.get_environment("USER")
 	if default_name.is_empty(): default_name = "Player"
 	name_field = _labeled_field(column, "Your name", default_name)
 	address_field = _labeled_field(column, "Host address", "127.0.0.1")

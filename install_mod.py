@@ -37,21 +37,45 @@ KNOWN_GAME_SIZES = {
     208462000: "0.5.2 standard build",
     208741456: "0.5.3 compatibility build",
     208741312: "0.5.3 standard build",
+    214541088: "0.5.3 Linux compatibility build",
+    214540944: "0.5.3 Linux standard build",
 }
+
+GAME_GLOBS = ("TheChoicerVoicer*.exe", "TheChoicerVoicer*.x86_64")
+
+# the build always targets the platform the installer runs on, so the tools it
+# downloads can run here and the game it makes does too.
+IS_WINDOWS = sys.platform == "win32"
+IS_LINUX = sys.platform.startswith("linux")
 
 GODOT_VERSION = "4.4.1-stable"
 GODOT_TEMPLATE_DIR_NAME = "4.4.1.stable"
-GODOT_URL = ("https://github.com/godotengine/godot-builds/releases/download/"
-             "4.4.1-stable/Godot_v4.4.1-stable_win64.exe.zip")
-TEMPLATES_URL = ("https://github.com/godotengine/godot-builds/releases/download/"
-                 "4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz")
+GODOT_RELEASES = ("https://github.com/godotengine/godot-builds/releases/download/"
+                  "4.4.1-stable/")
+TEMPLATES_URL = GODOT_RELEASES + "Godot_v4.4.1-stable_export_templates.tpz"
 GDRE_VERSION = "v2.6.3"
-GDRE_URL = ("https://github.com/GDRETools/gdsdecomp/releases/download/"
-            "v2.6.3/GDRE_tools-v2.6.3-windows.zip")
+GDRE_RELEASES = ("https://github.com/GDRETools/gdsdecomp/releases/download/"
+                 "v2.6.3/")
 
-TEMPLATE_MEMBER = "templates/windows_release_x86_64.exe"
+if IS_WINDOWS:
+    HOST = "windows"
+    GODOT_URL = GODOT_RELEASES + "Godot_v4.4.1-stable_win64.exe.zip"
+    GODOT_BIN_GLOB = "Godot_v*_win64.exe"
+    GDRE_URL = GDRE_RELEASES + "GDRE_tools-v2.6.3-windows.zip"
+    GDRE_BIN = "gdre_tools.exe"
+    TEMPLATE_MEMBER = "templates/windows_release_x86_64.exe"
+    EXPORT_PRESET = "Windows Desktop"
+    BUILD_SUFFIX = ".exe"
+else:
+    HOST = "linux"
+    GODOT_URL = GODOT_RELEASES + "Godot_v4.4.1-stable_linux.x86_64.zip"
+    GODOT_BIN_GLOB = "Godot_v*_linux.x86_64"
+    GDRE_URL = GDRE_RELEASES + "GDRE_tools-v2.6.3-linux.zip"
+    GDRE_BIN = "gdre_tools.x86_64"
+    TEMPLATE_MEMBER = "templates/linux_release.x86_64"
+    EXPORT_PRESET = "Linux"
+    BUILD_SUFFIX = ".x86_64"
 
-EXPORT_PRESET = "Windows Desktop"
 OUTPUT_STEM = "TheChoicerVoicer-Multiplayer"
 
 KOFI_URL = "https://ko-fi.com/appolodev"
@@ -104,7 +128,8 @@ def mod_version() -> str:
 MOD_VERSION = mod_version()
 # the version goes on the end so the file sorts next to its neighbours and so
 # nobody has to open a build to find out which one it is.
-DEFAULT_OUTPUT = f"{OUTPUT_STEM}-{MOD_VERSION}.exe" if MOD_VERSION else f"{OUTPUT_STEM}.exe"
+DEFAULT_OUTPUT = (f"{OUTPUT_STEM}-{MOD_VERSION}{BUILD_SUFFIX}" if MOD_VERSION
+                  else f"{OUTPUT_STEM}{BUILD_SUFFIX}")
 
 
 def _https_context() -> ssl.SSLContext | None:
@@ -136,6 +161,15 @@ def install_https_opener() -> None:
 def _tls_hint(exc: Exception) -> str:
     if "CERTIFICATE_VERIFY" not in str(exc):
         return ""
+    if not IS_WINDOWS:
+        return (
+            "\n\n  This is a TLS certificate error, not a problem with the mod.\n"
+            "  Your Python can't verify GitHub's certificate. Fixes, easiest first:\n"
+            "    1. Install your distro's ca-certificates package, or\n"
+            "       pip install certifi truststore   then run this again.\n"
+            "    2. Last resort, skip verification for this run:\n"
+            "         TCV_INSECURE_SSL=1 python3 install_mod.py"
+        )
     return (
         "\n\n  This is a TLS certificate error, not a problem with the mod.\n"
         "  Your Python can't verify GitHub's certificate. Fixes, easiest first:\n"
@@ -246,6 +280,13 @@ def unzip(archive: Path, dest: Path) -> None:
         zf.extractall(dest)
 
 
+def make_executable(path: Path) -> Path:
+    # zipfile drops the unix mode bits, so nothing it extracts can be run as is.
+    if not IS_WINDOWS:
+        path.chmod(path.stat().st_mode | 0o111)
+    return path
+
+
 def run(cmd: list[str], what: str) -> subprocess.CompletedProcess:
     proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     log_subprocess(what, cmd, proc)
@@ -295,11 +336,23 @@ class _Tee:
         return bool(self.streams) and self.streams[0].isatty()
 
 
+def xdg_data_home() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+
+
+def game_data_dir() -> Path | None:
+    """Where Godot keeps the game's custom user:// folder on this platform."""
+    if IS_WINDOWS:
+        appdata = os.environ.get("APPDATA")
+        return Path(appdata) / "YeahMaybe" / "ChoicerVoicer" if appdata else None
+    return xdg_data_home() / "YeahMaybe" / "ChoicerVoicer"
+
+
 def game_log_dir() -> Path | None:
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
+    data = game_data_dir()
+    if not data:
         return None
-    path = Path(appdata) / "YeahMaybe" / "ChoicerVoicer" / "logs"
+    path = data / "logs"
     return path if path.is_dir() else None
 
 
@@ -392,8 +445,10 @@ def zip_diagnostics() -> Path | None:
                 "install_log/  -- what the multiplayer mod installer did and said,\n"
                 "                 most recent run(s) first.\n"
                 "game_logs/    -- the game's own logs, straight from\n"
-                "                 %APPDATA%\\YeahMaybe\\ChoicerVoicer\\logs\\, with\n"
+                f"                 {game_logs or '(not found)'}, with\n"
                 "                 [NET] lines showing what the multiplayer mod did.\n"
+                "\n"
+                f"platform:      {platform.platform()}\n"
                 "\n"
                 f"Attach this zip to an issue: {ISSUES_URL}\n")
     except OSError:
@@ -474,6 +529,8 @@ def steam_libraries() -> list[Path]:
     home = os.environ.get("LOCALAPPDATA")
     if home:
         roots.append(Path(home) / "Steam")
+    if not IS_WINDOWS:
+        roots += [xdg_data_home() / "Steam", Path.home() / ".steam" / "steam"]
 
     libs: list[Path] = []
     for root in roots:
@@ -495,7 +552,7 @@ def find_game_exe() -> list[Path]:
     seen: set[str] = set()
 
     def consider(path: Path) -> None:
-        key = str(path).lower()
+        key = str(path.resolve()).lower()
         if key in seen or not path.is_file():
             return
         seen.add(key)
@@ -510,15 +567,18 @@ def find_game_exe() -> list[Path]:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         places.append(Path(local) / "itch" / "apps")
+    if not IS_WINDOWS:
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+        places += [config / "itch" / "apps", home / "Games"]
 
     for place in places:
         if not place.is_dir():
             continue
         try:
-            for pattern in ("TheChoicerVoicer*.exe", "*/TheChoicerVoicer*.exe",
-                            "*/*/TheChoicerVoicer*.exe"):
-                for hit in place.glob(pattern):
-                    consider(hit)
+            for name in GAME_GLOBS:
+                for pattern in (name, f"*/{name}", f"*/*/{name}"):
+                    for hit in place.glob(pattern):
+                        consider(hit)
         except OSError:
             continue
 
@@ -548,7 +608,8 @@ def choose_game_exe() -> Path:
 
     print("Drag your game exe onto this window and press Enter,")
     print("or paste the full path to it.\n")
-    typed = input("Game exe: ").strip().strip('"')
+    # linux terminals paste a dropped file wrapped in single quotes.
+    typed = input("Game exe: ").strip().strip('"').strip("'")
     if not typed:
         raise Failed("no game exe given")
     return Path(typed)
@@ -563,7 +624,7 @@ def check_game_exe(exe: Path) -> None:
     else:
         say("warn", f"{exe.name} is not a build this mod has been tested against.\n"
                     f"        Trying anyway. Expect a clear error shortly if it is "
-                    f"not Windows {GAME_VERSION}.")
+                    f"not {GAME_VERSION}.")
 
 
 def get_gdre(cache: Path, supplied: str | None) -> Path:
@@ -572,41 +633,40 @@ def get_gdre(cache: Path, supplied: str | None) -> Path:
         if not path.is_file():
             raise Failed(f"--gdre {path} does not exist")
         return path
-    archive = download(GDRE_URL, cache / f"gdre-{GDRE_VERSION}.zip")
-    out = cache / f"gdre-{GDRE_VERSION}"
+    archive = download(GDRE_URL, cache / f"gdre-{GDRE_VERSION}-{HOST}.zip")
+    out = cache / f"gdre-{GDRE_VERSION}-{HOST}"
     if not out.exists():
         unzip(archive, out)
-    for candidate in out.rglob("gdre_tools.exe"):
-        return candidate
-    raise Failed("gdre_tools.exe not found inside the downloaded archive")
+    for candidate in out.rglob(GDRE_BIN):
+        return make_executable(candidate)
+    raise Failed(f"{GDRE_BIN} not found inside the downloaded archive")
 
 
 def get_godot(cache: Path, supplied: str | None) -> Path:
     if supplied:
         path = Path(supplied)
         if path.is_dir():
-            inner = list(path.glob("Godot_v*_win64.exe"))
+            inner = list(path.glob(GODOT_BIN_GLOB))
             if inner:
                 return inner[0]
         if not path.is_file():
             raise Failed(f"--godot {path} does not exist")
         return path
-    archive = download(GODOT_URL, cache / f"godot-{GODOT_VERSION}.zip")
-    out = cache / f"godot-{GODOT_VERSION}"
+    archive = download(GODOT_URL, cache / f"godot-{GODOT_VERSION}-{HOST}.zip")
+    out = cache / f"godot-{GODOT_VERSION}-{HOST}"
     if not out.exists():
         unzip(archive, out)
-    for candidate in out.rglob("Godot_v*_win64.exe"):
+    for candidate in out.rglob(GODOT_BIN_GLOB):
         if "console" not in candidate.name:
-            return candidate
+            return make_executable(candidate)
     raise Failed("Godot executable not found inside the downloaded archive")
 
 
 def templates_dir() -> Path:
     appdata = os.environ.get("APPDATA")
-    if appdata:
+    if IS_WINDOWS and appdata:
         return Path(appdata) / "Godot" / "export_templates" / GODOT_TEMPLATE_DIR_NAME
-    return (Path.home() / ".local" / "share" / "godot" / "export_templates"
-            / GODOT_TEMPLATE_DIR_NAME)
+    return xdg_data_home() / "godot" / "export_templates" / GODOT_TEMPLATE_DIR_NAME
 
 
 def install_full_templates(cache: Path, dest: Path) -> None:
@@ -733,8 +793,9 @@ def write_export_preset(work: Path) -> None:
     nothing."""
     text = read_text(MOD / "export_presets.cfg")
     if MOD_VERSION:
-        text = text.replace(f'export_path="{OUTPUT_STEM}.exe"',
-                            f'export_path="{DEFAULT_OUTPUT}"', 1)
+        for suffix in (".exe", ".x86_64"):
+            text = text.replace(f'export_path="{OUTPUT_STEM}{suffix}"',
+                                f'export_path="{OUTPUT_STEM}-{MOD_VERSION}{suffix}"', 1)
     write_text(work / "export_presets.cfg", text)
 
 
@@ -838,6 +899,11 @@ def explain_missing_export(proc: subprocess.CompletedProcess, output: Path) -> N
 
     print(f"\nGodot finished without complaining, but {output.name} is not there.")
 
+    if not IS_WINDOWS:
+        print("\nCheck the folder is writable and has a few hundred MB free, then")
+        print("look at the full Godot output in the install log for the reason.")
+        return
+
     hits = defender_detections(output)
     if hits:
         print("\nWindows Defender deleted it. Its own log says so:")
@@ -878,6 +944,7 @@ def export(godot: Path, work: Path, output: Path) -> None:
                     "--export-release", EXPORT_PRESET, str(output.resolve())],
                    "exporting the game")
         if output.is_file() or recover_leftover_build(output, work):
+            make_executable(output)
             return
         explain_missing_export(proc, output)
         if not sys.stdin.isatty():
@@ -907,10 +974,10 @@ def main(argv: list[str]) -> int:
         description="Build The Choicer Voicer multiplayer mod from your own copy of the game.",
         epilog="You need to own the game. This tool never downloads it.")
     ap.add_argument("game_exe", nargs="?",
-                    help="your official TheChoicerVoicer Windows exe "
+                    help="your official TheChoicerVoicer Windows exe or Linux .x86_64 "
                          f"({' or '.join(SUPPORTED_VERSIONS)})")
     ap.add_argument("-o", "--output", default=DEFAULT_OUTPUT,
-                    help=f"where to write the modded exe (default: {DEFAULT_OUTPUT})")
+                    help=f"where to write the modded game (default: {DEFAULT_OUTPUT})")
     ap.add_argument("--no-kofi", action="store_true",
                     help="don't open the Ko-fi page when the build finishes")
     ap.add_argument("--zip-logs", action="store_true",
@@ -921,7 +988,7 @@ def main(argv: list[str]) -> int:
                     help="patch an already-decompiled project instead of an exe, "
                          "and stop before exporting (for modders)")
     ap.add_argument("--godot", help="path to Godot 4.4.1 instead of downloading it")
-    ap.add_argument("--gdre", help="path to gdre_tools.exe instead of downloading it")
+    ap.add_argument("--gdre", help=f"path to {GDRE_BIN} instead of downloading it")
     ap.add_argument("--cache", default=str(HERE / ".cache"),
                     help="where downloads are kept between runs")
     ap.add_argument("--work", default=str(HERE / "work"),
@@ -938,14 +1005,19 @@ def main(argv: list[str]) -> int:
             print(f"Saved a diagnostics zip:\n  {bundle}")
             print(f"\nAttach it to an issue: {ISSUES_URL}")
         else:
-            checked = game_log_dir() or (Path(os.environ.get("APPDATA", ""))
-                                         / "YeahMaybe" / "ChoicerVoicer" / "logs")
+            data = game_data_dir()
+            checked = data / "logs" if data else "%APPDATA%\\YeahMaybe\\ChoicerVoicer\\logs"
             print("Nothing to zip yet -- no installer logs and no game logs found at")
             print(f"  {checked}")
         return 0
 
     if not MOD.is_dir():
         raise Failed(f"mod/ folder missing next to {Path(__file__).name}")
+
+    if not (IS_WINDOWS or IS_LINUX):
+        raise Failed(f"this installer builds on Windows and Linux only, not {sys.platform}")
+    if IS_LINUX and platform.machine() not in ("x86_64", "AMD64"):
+        raise Failed(f"Linux builds need an x86_64 machine, this one is {platform.machine()}")
 
     cache = Path(args.cache)
     work = Path(args.work)

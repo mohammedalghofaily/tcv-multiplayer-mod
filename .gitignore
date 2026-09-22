@@ -3,6 +3,7 @@
 work/
 .cache/
 *.exe
+*.x86_64
 *.pck
 *.zip
 *.tpz
