@@ -277,11 +277,13 @@ static func pick_encoder(ffmpeg: String) -> String:
 
 
 static func ffmpeg_missing_text() -> String:
+	# the installer fetches it by default, so reaching this means that step failed
+	# or was skipped.
 	if OS.get_name() == "Windows":
-		return ("Saving as video needs ffmpeg. Install it with\n  winget install Gyan.FFmpeg\n"
-			+ "then restart the game. Or put ffmpeg.exe next to the game's exe.")
-	return ("Saving as video needs ffmpeg. Install it with your package manager "
-		+ "(the package is called ffmpeg), then try again.")
+		return ("Saving as video needs ffmpeg. Run the mod installer again and it "
+			+ "downloads it, or run\n  winget install Gyan.FFmpeg\nand restart the game.")
+	return ("Saving as video needs ffmpeg. Run the mod installer again and it downloads "
+		+ "it, or install ffmpeg with your package manager.")
 
 
 static func output_folder() -> String:

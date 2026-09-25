@@ -76,6 +76,13 @@ else:
     EXPORT_PRESET = "Linux"
     BUILD_SUFFIX = ".x86_64"
 
+# ffmpeg for Save as Video. BtbN's builds are the ones ffmpeg.org itself links
+# to for Windows, and the gpl variant is the one with libx264 in it. "latest" is
+# the only tag they keep indefinitely, so this is not pinned.
+FFMPEG_RELEASES = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+FFMPEG_WINDOWS_ZIP = "ffmpeg-master-latest-win64-gpl.zip"
+FFMPEG_LINUX_TAR = "ffmpeg-master-latest-linux64-gpl.tar.xz"
+
 OUTPUT_STEM = "TheChoicerVoicer-Multiplayer"
 
 KOFI_URL = "https://ko-fi.com/appolodev"
@@ -241,18 +248,18 @@ def download_zip_member(url: str, member: str, dest: Path) -> None:
     found = None
     while pos < len(cd) - 4 and cd[pos:pos + 4] == b"PK\x01\x02":
         method, = struct.unpack("<H", cd[pos + 10:pos + 12])
-        comp_size, uncomp_size = struct.unpack("<II", cd[pos + 20:pos + 28])
+        crc, comp_size, uncomp_size = struct.unpack("<III", cd[pos + 16:pos + 28])
         name_len, extra_len, comment_len = struct.unpack("<HHH", cd[pos + 28:pos + 34])
         local_offset, = struct.unpack("<I", cd[pos + 42:pos + 46])
         name = cd[pos + 46:pos + 46 + name_len].decode("utf-8", "replace")
         if name == member:
-            found = (method, comp_size, uncomp_size, local_offset)
+            found = (method, crc, comp_size, uncomp_size, local_offset)
             break
         pos += 46 + name_len + extra_len + comment_len
     if not found:
         raise Failed(f"{member} is not in the archive")
 
-    method, comp_size, uncomp_size, local_offset = found
+    method, crc, comp_size, uncomp_size, local_offset = found
     head = http_range(url, local_offset, 30)
     if head[:4] != b"PK\x03\x04":
         raise Failed("archive index points at nothing")
@@ -270,8 +277,14 @@ def download_zip_member(url: str, member: str, dest: Path) -> None:
         raise Failed(f"unsupported compression method {method}")
     if len(raw) != uncomp_size:
         raise Failed("the extracted file is the wrong size")
+    # a published checksum only ever covers the whole archive, so a single
+    # member is checked against the CRC the archive's own index gives for it.
+    if zlib.crc32(raw) != crc:
+        raise Failed("the extracted file does not match its checksum")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(raw)
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(raw)
+    tmp.replace(dest)
 
 
 def unzip(archive: Path, dest: Path) -> None:
@@ -695,6 +708,80 @@ def ensure_templates(cache: Path) -> None:
         install_full_templates(cache, dest)
 
 
+def ffmpeg_destination() -> Path | None:
+    """The tools folder inside the game's own data folder (user://tools), which
+    is the first place the game's Save as Video button looks."""
+    name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            return None
+        root = Path(appdata)
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return root / "YeahMaybe" / "ChoicerVoicer" / "tools" / name
+
+
+def published_sha256(name: str) -> str:
+    with urllib.request.urlopen(FFMPEG_RELEASES + "checksums.sha256") as resp:
+        for line in resp.read().decode("utf-8", "replace").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1].lstrip("*") == name:
+                return parts[0].lower()
+    raise Failed(f"{name} is not in the published checksums")
+
+
+def ensure_ffmpeg(cache: Path) -> None:
+    """Only the ffmpeg executable goes anywhere, and only into the game's own
+    tools folder. An ffmpeg that is already installed is used as it is."""
+    dest = ffmpeg_destination()
+    if dest is None:
+        say("skip", "no game data folder to put ffmpeg in")
+        return
+    if dest.is_file():
+        say("skip", f"ffmpeg already in {dest.parent}")
+        return
+    installed = shutil.which("ffmpeg")
+    if installed:
+        say("skip", f"using the ffmpeg already installed at {installed}")
+        return
+
+    if sys.platform == "win32":
+        member = FFMPEG_WINDOWS_ZIP[:-len(".zip")] + "/bin/ffmpeg.exe"
+        download_zip_member(FFMPEG_RELEASES + FFMPEG_WINDOWS_ZIP, member, dest)
+    elif sys.platform.startswith("linux") and platform.machine() in ("x86_64", "AMD64"):
+        import hashlib
+        import tarfile
+        # xz cannot be read from the middle, so this one is the whole archive,
+        # and the whole archive is what the published checksum covers.
+        archive = download(FFMPEG_RELEASES + FFMPEG_LINUX_TAR, cache / FFMPEG_LINUX_TAR)
+        try:
+            digest = hashlib.sha256()
+            with open(archive, "rb") as fh:
+                for block in iter(lambda: fh.read(1 << 20), b""):
+                    digest.update(block)
+            if digest.hexdigest() != published_sha256(FFMPEG_LINUX_TAR):
+                raise Failed("the ffmpeg download does not match its published checksum")
+            member = FFMPEG_LINUX_TAR[:-len(".tar.xz")] + "/bin/ffmpeg"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(dest.name + ".part")
+            with tarfile.open(archive, "r:xz") as tar:
+                source = tar.extractfile(member)
+                if source is None:
+                    raise Failed(f"{member} is not in the ffmpeg archive")
+                with source, open(tmp, "wb") as out:
+                    shutil.copyfileobj(source, out)
+            tmp.chmod(0o755)
+            tmp.replace(dest)
+        finally:
+            # "latest" moves, so a cached copy would only fail the checksum next time.
+            archive.unlink(missing_ok=True)
+    else:
+        say("skip", f"no ffmpeg build to fetch for {sys.platform} {platform.machine()}")
+        return
+    say("ffmpeg", f"installed to {dest}")
+
+
 def decompile(gdre: Path, exe: Path, work: Path) -> None:
     if work.exists():
         shutil.rmtree(work)
@@ -987,6 +1074,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--project", metavar="DIR",
                     help="patch an already-decompiled project instead of an exe, "
                          "and stop before exporting (for modders)")
+    ap.add_argument("--no-ffmpeg", action="store_true",
+                    help="don't fetch ffmpeg, which only the Save as Video button needs")
     ap.add_argument("--godot", help="path to Godot 4.4.1 instead of downloading it")
     ap.add_argument("--gdre", help=f"path to {GDRE_BIN} instead of downloading it")
     ap.add_argument("--cache", default=str(HERE / ".cache"),
@@ -1037,25 +1126,38 @@ def main(argv: list[str]) -> int:
     for folder in exclusion_folders:
         offer_defender_exclusion(folder)
 
-    say("1/5", "getting gdRE Tools")
+    say("1/6", "getting gdRE Tools")
     gdre = get_gdre(cache, args.gdre)
 
-    say("2/5", "decompiling your copy of the game")
+    say("2/6", "decompiling your copy of the game")
     decompile(gdre, exe, work)
 
-    say("3/5", "applying the multiplayer mod")
+    say("3/6", "applying the multiplayer mod")
     apply_mod(work)
 
-    say("4/5", "getting Godot and export templates")
+    say("4/6", "getting Godot and export templates")
     godot = get_godot(cache, args.godot)
     ensure_templates(cache)
 
-    say("5/5", "building")
+    say("5/6", "building")
     output = Path(args.output)
     export(godot, work, output)
 
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
+
+    # last, and never fatal: the game is built and plays fine without it, and
+    # the Save as Video button says how to get it if this didn't work.
+    if args.no_ffmpeg:
+        say("6/6", "skipping ffmpeg (--no-ffmpeg)")
+    else:
+        say("6/6", "getting ffmpeg for Save as Video")
+        try:
+            ensure_ffmpeg(cache)
+        except Exception as exc:
+            say("warn", f"could not get ffmpeg ({exc}).\n"
+                        "        Everything else works. Run the installer again later, or install\n"
+                        "        ffmpeg yourself, if you want the Save as Video button.")
 
     size = output.stat().st_size
     print(f"\nDone -> {output.resolve()}  ({size // 1048576} MB)")
