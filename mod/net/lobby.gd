@@ -1,6 +1,9 @@
 extends Control
 
 const ROW_HEIGHT: int = 34
+# the roster sits in its own column beside the form. under it, eight rows plus a
+# host's address list ran into the footer on a 648px-tall screen.
+const ROSTER_WIDTH: int = 400
 # ENet drops a peer it cannot reach after 30s of its own accord. say something
 # useful before that happens rather than letting the lobby sit there empty.
 const JOIN_TIMEOUT: float = 12.0
@@ -76,16 +79,28 @@ func _build_ui() -> void:
 	build.add_theme_color_override("font_color", Color(0.65, 0.65, 0.75))
 	column.add_child(build)
 
+	var body: = HBoxContainer.new()
+	body.add_theme_constant_override("separation", 48)
+	column.add_child(body)
+	var form: = VBoxContainer.new()
+	form.add_theme_constant_override("separation", 10)
+	form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(form)
+	var roster: = VBoxContainer.new()
+	roster.add_theme_constant_override("separation", 10)
+	roster.custom_minimum_size.x = ROSTER_WIDTH
+	body.add_child(roster)
+
 	var default_name: String = OS.get_environment("USERNAME")
 	if default_name.is_empty(): default_name = OS.get_environment("USER")
 	if default_name.is_empty(): default_name = "Player"
-	name_field = _labeled_field(column, "Your name", default_name)
-	address_field = _labeled_field(column, "Host address", "127.0.0.1")
-	port_field = _labeled_field(column, "Port", str(Net.PORT))
+	name_field = _labeled_field(form, "Your name", default_name)
+	address_field = _labeled_field(form, "Host address", "127.0.0.1")
+	port_field = _labeled_field(form, "Port", str(Net.PORT))
 
 	var buttons: = HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 8)
-	column.add_child(buttons)
+	form.add_child(buttons)
 
 	host_button = Button.new()
 	host_button.text = "Host"
@@ -119,21 +134,24 @@ func _build_ui() -> void:
 
 	status_label = Label.new()
 	status_label.text = "Not connected."
-	column.add_child(status_label)
+	# the form column is narrower than the screen now, and the hosting line with
+	# its address list is wider than the form.
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(status_label)
 
 	warning_label = Label.new()
 	warning_label.add_theme_color_override("font_color", Color("ffcc44"))
 	warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	column.add_child(warning_label)
+	form.add_child(warning_label)
 
 	var players_title: = Label.new()
-	players_title.text = "Contestants"
+	players_title.text = "Contestants (up to %d)" % Net.MAX_PLAYERS
 	players_title.add_theme_font_size_override("font_size", 22)
-	column.add_child(players_title)
+	roster.add_child(players_title)
 
 	player_rows = VBoxContainer.new()
 	player_rows.custom_minimum_size.y = ROW_HEIGHT * Net.MAX_PLAYERS
-	column.add_child(player_rows)
+	roster.add_child(player_rows)
 
 	_build_support_footer()
 
@@ -326,6 +344,7 @@ func _refresh() -> void:
 		var shown: String = str(record.get("name", "?")).substr(0, 28)
 		row.text = "%d.  %s   [%s]" % [slot + 1, shown, ", ".join(marks)]
 		row.clip_text = true
+		row.custom_minimum_size.x = ROSTER_WIDTH
 		player_rows.add_child(row)
 
 	if online:

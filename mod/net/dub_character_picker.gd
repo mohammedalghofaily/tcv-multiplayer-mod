@@ -10,7 +10,7 @@ const INSET: int = 56
 var characters: PackedStringArray = []
 
 var _boxes: Dictionary = {}
-var roster_rows: VBoxContainer
+var roster_rows: GridContainer
 var status_label: Label
 var warning_label: Label
 var begin_button: Button
@@ -89,7 +89,11 @@ func _build_ui() -> void:
 	roster_title.add_theme_font_size_override("font_size", 22)
 	column.add_child(roster_title)
 
-	roster_rows = VBoxContainer.new()
+	# two across, like the lobby: eight casting lines under a big character list
+	# push Begin off the bottom of the screen.
+	roster_rows = GridContainer.new()
+	roster_rows.columns = 2
+	roster_rows.add_theme_constant_override("h_separation", 24)
 	column.add_child(roster_rows)
 
 	warning_label = Label.new()
@@ -161,6 +165,7 @@ func _refresh() -> void:
 		var what: String = ", ".join(picked) if not picked.is_empty() else "nobody yet"
 		row.text = "%d.  %s  --  %s" % [slot + 1, who, what]
 		row.clip_text = true
+		row.custom_minimum_size.x = 480
 		roster_rows.add_child(row)
 
 	var notes: PackedStringArray = []
