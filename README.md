@@ -121,7 +121,9 @@ doesn't do that any more. See
 [is this a virus](#is-this-a-virus).
 
 It downloads about 140mb of tools ([gdRE](https://github.com/GDRETools/gdsdecomp)
-and [Godot](https://godotengine.org), both free), builds the mod, and leaves
+and [Godot](https://godotengine.org), both free), plus about 60mb of
+[ffmpeg](https://github.com/BtbN/FFmpeg-Builds) for the Save as Video button if
+you haven't already got it, builds the mod, and leaves
 `TheChoicerVoicer-Multiplayer-1.2.0.exe` sat in the same folder. Takes a few
 minutes. Run it again later and it reuses the downloads so it's quicker the
 second time.
@@ -157,6 +159,7 @@ python install_mod.py "C:\path\to\TheChoicerVoicer_0-5-1 stable.exe"
 | `--no-kofi` | don't open the Ko-fi page when the build finishes |
 | `--godot PATH` | use a Godot 4.4.1 you've already got |
 | `--gdre PATH` | use a `gdre_tools.exe` you've already got |
+| `--no-ffmpeg` | don't fetch ffmpeg; only the Save as Video button needs it |
 | `--keep-work` | keep the decompiled project instead of binning it |
 | `--project DIR` | patch a decompiled project and stop, for modders |
 | `--zip-logs` | bundle this tool's logs and the game's own logs into a zip on your Desktop and exit — no game exe needed |
@@ -265,11 +268,14 @@ half long takes a few seconds. It lands in your Videos folder under
 `Choicer Voicer Dubs`, and the button turns into **Show Video** to open it. Stay
 on the results screen until it's done; leaving cancels it.
 
-It needs [ffmpeg](https://ffmpeg.org), which Godot can't do without when it comes
-to writing video. On Linux, install `ffmpeg` with your package manager. On
-Windows, `winget install Gyan.FFmpeg` and restart the game, or drop `ffmpeg.exe`
-next to the game's exe. If it can't find one the button says so. Set
-`TCV_FFMPEG` to point it at a copy anywhere else.
+It needs [ffmpeg](https://ffmpeg.org), because Godot can't write video on its
+own. The installer fetches it for you as its last step, unless you already have
+ffmpeg installed, and puts just `ffmpeg` in the game's own data folder under
+`tools`. That step never stops the install: if it fails, the game builds anyway
+and the button tells you how to get ffmpeg. `--no-ffmpeg` skips it. You can
+also install ffmpeg yourself (`winget install Gyan.FFmpeg` on Windows, your
+package manager on Linux), drop `ffmpeg.exe` next to the game's exe, or set
+`TCV_FFMPEG` to point at a copy anywhere else.
 
 ## community packs (experimental)
 
@@ -362,6 +368,10 @@ If you want to check for yourself:
   them to rebuild the game. Both are well known open source tools and the urls
   are sat in plain sight at the top of `install_mod.py`, pointing at their
   official GitHub releases.
+- It also downloads [ffmpeg](https://github.com/BtbN/FFmpeg-Builds) for the Save
+  as Video button, unless you already have it, but it never runs it; only the
+  game does, when you press that button. It keeps just the one `ffmpeg`
+  program, checked against the archive's own checksum, in the game's data folder.
 - Browsers warn about new files nobody's downloaded before, separately from any
   antivirus. That one goes away on its own as more people grab it.
 
@@ -781,8 +791,9 @@ against a clean decompile with the node path fix applied.
 - The game show stage and score screen haven't been looked at with eight people
   on them yet. They lay out however many contestants there are, the same code
   the base game runs past four players in its own unbound mode.
-- Save as Video needs ffmpeg installed separately; the mod doesn't ship or
-  download it.
+- The ffmpeg the installer fetches is BtbN's rolling "latest" build, since that's
+  the only one they keep up permanently, so two people can end up with slightly
+  different ffmpeg versions. It doesn't matter for anything the mod does with it.
 - Pack differences only get checked against the clips actually picked.
 
 ## credits
