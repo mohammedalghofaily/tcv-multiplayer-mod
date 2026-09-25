@@ -5,6 +5,7 @@ extends Control
 signal closed
 
 const CATALOG_SCRIPT: Script = preload("res://net/gamebanana_client.gd")
+const PEEK_SCRIPT: Script = preload("res://net/pack_character_peek.gd")
 const INSTALLER_SCRIPT: Script = preload("res://net/community_pack_installer.gd")
 
 const BG: Color = Color("080b14")
@@ -45,6 +46,8 @@ var _detail_title: Label
 var _detail_meta: Label
 var _detail_description: Label
 var _file_picker: OptionButton
+var _peek: Node
+var _characters_label: Label
 var _install_status: Label
 var _install_progress: ProgressBar
 var _install_button: Button
@@ -76,6 +79,9 @@ func _ready() -> void:
 	_catalog.detail_loaded.connect(_on_detail_loaded)
 	_catalog.request_failed.connect(_on_request_failed)
 	add_child(_catalog)
+	_peek = PEEK_SCRIPT.new()
+	_peek.finished.connect(_on_characters_counted)
+	add_child(_peek)
 	_downloads = Net.community_pack_downloads
 	_downloads.changed.connect(_on_downloads_changed)
 	_image_http = HTTPRequest.new()
@@ -95,6 +101,7 @@ func _fit_to_viewport() -> void:
 
 func _exit_tree() -> void:
 	if is_instance_valid(_catalog): _catalog.cancel()
+	if is_instance_valid(_peek): _peek.cancel()
 	if is_instance_valid(_image_http): _image_http.cancel_request()
 
 
@@ -304,8 +311,17 @@ func _build_ui() -> void:
 	_file_picker.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_file_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_file_picker.disabled = true
-	_file_picker.item_selected.connect(func(_index: int) -> void: _refresh_install_action())
+	_file_picker.item_selected.connect(func(_index: int) -> void:
+		_refresh_install_action()
+		_count_characters())
 	detail.add_child(_file_picker)
+	# up by the author line, not down here: descriptions run long and this is the
+	# thing people pick a pack for when they have a group of a given size.
+	_characters_label = Label.new()
+	_characters_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_characters_label.add_theme_color_override("font_color", TEXT)
+	detail.add_child(_characters_label)
+	detail.move_child(_characters_label, _detail_meta.get_index() + 1)
 	_install_progress = ProgressBar.new()
 	_install_progress.visible = false
 	_install_progress.show_percentage = true
@@ -571,6 +587,8 @@ func _select_record(record: Dictionary) -> void:
 	_detail_description.text = "Loading description and download files..."
 	_file_picker.clear()
 	_file_picker.disabled = true
+	_peek.cancel()
+	_characters_label.text = ""
 	_install_status.text = ""
 	_install_button.disabled = true
 	_open_button.disabled = false
@@ -614,6 +632,30 @@ func _on_detail_loaded(detail: Dictionary) -> void:
 				break
 		_file_picker.select(first_zip)
 	_refresh_install_action()
+	_count_characters()
+
+
+func _count_characters() -> void:
+	var file: Dictionary = _selected_file()
+	if file.is_empty():
+		_peek.cancel()
+		_characters_label.text = ""
+		return
+	var known: Dictionary = PEEK_SCRIPT.cached(int(file.get("id", 0)))
+	if not known.is_empty():
+		_on_characters_counted(int(file["id"]), known)
+		return
+	_characters_label.text = "Counting characters..."
+	_characters_label.add_theme_color_override("font_color", MUTED)
+	_peek.peek(file)
+
+
+func _on_characters_counted(file_id: int, result: Dictionary) -> void:
+	# a slow answer for a file that is no longer the one on screen.
+	if int(_selected_file().get("id", 0)) != file_id: return
+	_characters_label.text = PEEK_SCRIPT.describe(result)
+	_characters_label.add_theme_color_override(
+		"font_color", MUTED if result.has("error") else TEXT)
 
 
 func _selected_file() -> Dictionary:

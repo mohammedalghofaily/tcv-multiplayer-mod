@@ -24,7 +24,7 @@
   a coffee helps me keep working on it.</em>
 </p>
 
-Play The Choicer Voicer with up to 4 people online. Everyone records on their own
+Play The Choicer Voicer with up to 8 people online. Everyone records on their own
 mic on their own pc and it all stays in sync, so one person performs at a time,
 the host clicks through the dialogue for everybody, and the scores get worked out
 in one place so you're not all sat looking at different numbers.
@@ -122,7 +122,7 @@ doesn't do that any more. See
 
 It downloads about 140mb of tools ([gdRE](https://github.com/GDRETools/gdsdecomp)
 and [Godot](https://godotengine.org), both free), builds the mod, and leaves
-`TheChoicerVoicer-Multiplayer-1.1.9.exe` sat in the same folder. Takes a few
+`TheChoicerVoicer-Multiplayer-1.2.0.exe` sat in the same folder. Takes a few
 minutes. Run it again later and it reuses the downloads so it's quicker the
 second time.
 
@@ -208,7 +208,7 @@ On the networking side it runs on UDP port 7654. Over the internet the host has
 to forward that port on their router. If you'd rather not be messing about in
 there, ZeroTier, Tailscale, Radmin and Hamachi all work, you just connect on the
 virtual IPs instead. On Hamachi that's the IPv4 address shown next to the host's
-name, not their real one. 2 to 4 players.
+name, not their real one. 2 to 8 players.
 
 ## playing
 
@@ -252,6 +252,25 @@ note while it does. **Stop** goes out to everyone the same way.
 When the pack's finished you all get put back in the lobby and the host can pick
 another one. No need to restart anything.
 
+### saving a dub as a video
+
+The results screen has a **Save as Video** button under **Save Dub**. It makes
+an MP4 of exactly what **Watch** plays: the pack's own video with everyone's
+takes laid in at their timestamps over the backing track. It works online and
+off, and anyone at the table can press it, since everybody has every take.
+
+It isn't a screen recording. The frames come straight from the pack's video, so
+the file is full quality however slow your machine is, and a dub a minute and a
+half long takes a few seconds. It lands in your Videos folder under
+`Choicer Voicer Dubs`, and the button turns into **Show Video** to open it. Stay
+on the results screen until it's done; leaving cancels it.
+
+It needs [ffmpeg](https://ffmpeg.org), which Godot can't do without when it comes
+to writing video. On Linux, install `ffmpeg` with your package manager. On
+Windows, `winget install Gyan.FFmpeg` and restart the game, or drop `ffmpeg.exe`
+next to the game's exe. If it can't find one the button says so. Set
+`TCV_FFMPEG` to point it at a copy anywhere else.
+
 ## community packs (experimental)
 
 The mod now has a native **Community Packs** screen for Dub Mode submissions on
@@ -261,7 +280,17 @@ Extras when that screen's layout can be identified safely. This is an in-game
 catalog, not an embedded web page: it fetches GameBanana's public JSON, the
 selected preview image and, only after you queue it, the selected archive.
 
-Pick a submission, choose one of its files and press **Add to download queue**.
+Pick a submission and it says how many characters the pack has and who they
+are, under the author line, before you download anything. That is the number
+that matters when you're deciding whether a pack suits the size of your group.
+GameBanana doesn't list characters, so the browser reads them out of the ZIP
+itself: its file index off the end of the archive, then just the small config
+file beside each clip, all by HTTP range requests. That's usually tens of
+kilobytes out of a pack of a few hundred megabytes, and takes a few seconds.
+Only ZIPs can be read this way; a RAR says so instead. Nothing it reads is run
+or loaded as a game resource.
+
+Choose one of its files and press **Add to download queue**.
 Downloads run one at a time so several 200–450 MB archives do not fight over the
 same connection. You can queue more, cancel or retry them from **Downloads**,
 then close the browser while the queue continues under the game's persistent Net
@@ -326,7 +355,7 @@ or run anything by itself.
 
 If you want to check for yourself:
 
-- The whole thing is 29 text files, about 370kb. Open `Install.bat` and
+- The whole thing is 36 text files, about 430kb. Open `Install.bat` and
   `install_mod.py` in notepad and read them, that's all there is.
 - The installer does download [Godot](https://godotengine.org) and
   [gdRE](https://github.com/GDRETools/gdsdecomp) and run them, because it needs
@@ -477,6 +506,15 @@ existing ENet connection with a bounded acknowledged window, verifies every file
 with SHA-256, and waits for the whole lobby before starting. The dub start packet
 now contains a content ID and relative clip paths rather than paths from the
 host's disk, so protocol 8 cannot play with earlier builds.
+
+v1.2.0 stays on protocol 8, so it can share a lobby with v1.1.9. Lobbies go up to
+8 now, but only when the host is on 1.2.0; a 1.1.9 host still stops at 4. The
+character counts and Save as Video are local and don't touch the network at all.
+
+**Somebody can't join and just gets told nothing.** If the lobby's already
+full, up to v1.1.9 the extra joiner was turned away by the network layer before
+the mod could say why, so they sat there until the join timed out. From v1.2.0
+they're told the lobby is full, and the host sees that someone tried.
 
 **We were playing fine and then he just got kicked. No error, no crash, he was
 back at the menu.** That was a bug, fixed in v1.1.8, and it's the same 30 second
@@ -661,6 +699,8 @@ mod/net/gamebanana_client.gd      GameBanana catalog and response normalization
 mod/net/community_pack_browser.gd native community catalog screen
 mod/net/community_pack_installer.gd staged, validated ZIP installation
 mod/net/community_pack_queue.gd    background queue, cancellation and retry
+mod/net/pack_character_peek.gd    counts a GameBanana ZIP's characters by range request
+mod/net/dub_video_export.gd       Save as Video on the dub results screen, via ffmpeg
 mod/net/lobby.gd                  the lobby screen, built in code
 mod/net/dub_character_picker.gd   the casting screen, built in code
 mod/net/_selftest.gd              compiles every script in the project
@@ -738,6 +778,11 @@ against a clean decompile with the node path fix applied.
 - Everyone needs the same build. The mod checks and kicks you out with a message
   if you don't, but it can't mix a 0.5.1 host with a 0.5.2 or 0.5.3 client.
 - Twitch modes are singleplayer, haven't touched them.
+- The game show stage and score screen haven't been looked at with eight people
+  on them yet. They lay out however many contestants there are, the same code
+  the base game runs past four players in its own unbound mode.
+- Save as Video needs ffmpeg installed separately; the mod doesn't ship or
+  download it.
 - Pack differences only get checked against the clips actually picked.
 
 ## credits

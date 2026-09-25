@@ -20,10 +20,14 @@ signal scores_received(scores: PackedInt32Array)
 # anything that goes out, even when the protocol below does not move: two builds
 # that behave differently and both call themselves 1.1.5 make the one question
 # worth asking -- "what does yours say?" -- impossible to answer.
-const MOD_VERSION: String = "1.1.9"
+const MOD_VERSION: String = "1.2.0"
 
+const DUB_VIDEO_EXPORT: Script = preload("res://net/dub_video_export.gd")
 const PORT: int = 7654
-const MAX_PLAYERS: int = 4
+# the game lays podiums out for any count, and its own "unbound" mode goes past
+# four locally, so the cap is ours. raising it moves no rpc, so the protocol stays.
+const MAX_PLAYERS: int = 8
+const FULL_LOBBY_SPARE_PEERS: int = 2
 # 8: dub packs can be offered, streamed, verified and cached from the host. The
 # transfer calls live on a PackSync child so the handshake below stays pinned,
 # but _rpc_start_dub now carries a content ID and relative paths instead of the
@@ -149,7 +153,10 @@ func player_name_for_slot(slot: int) -> String:
 func host_game(player_name: String, pack: String, port: int = PORT) -> Error:
 	if pack_sync != null: pack_sync.reset()
 	var peer: = ENetMultiplayerPeer.new()
-	var err: Error = peer.create_server(port, MAX_PLAYERS - 1)
+	# room for a couple past a full table. ENet turns away anyone over its own
+	# limit before they can connect, so without these a joiner to a full lobby
+	# never hears "Lobby is full" and just times out wondering what went wrong.
+	var err: Error = peer.create_server(port, MAX_PLAYERS - 1 + FULL_LOBBY_SPARE_PEERS)
 	if err != OK:
 		log_net("FAILED to open port %d (error %d)" % [port, err])
 		connection_failed.emit("Could not open port %d. Is another copy already hosting?" % port)
@@ -1736,8 +1743,15 @@ func _ready() -> void:
 	match_should_start.connect(_on_match_should_start, CONNECT_DEFERRED)
 	dub_should_start.connect(_on_dub_should_start, CONNECT_DEFERRED)
 	log_net("multiplayer mod %s (protocol %d) loaded" % [MOD_VERSION, PROTOCOL_VERSION])
+	# Save as Video rides along on dub mode, offline or online, without a versioned
+	# patch to carry it.
+	get_tree().node_added.connect(_on_node_added)
 	_build_the_way_in()
 	if OS.is_debug_build(): _check_the_handshake_still_sorts_first()
+
+
+func _on_node_added(node: Node) -> void:
+	DUB_VIDEO_EXPORT.attach_if_dub_mode(node)
 
 
 # the handshake only survives a version difference because it sorts to the front

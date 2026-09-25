@@ -37,6 +37,7 @@ func _ready() -> void:
 
 	print("SELFTEST | compiled %d scripts" % total)
 	_run_community_pack_tests(failures)
+	_run_character_peek_tests(failures)
 	_run_download_queue_tests(failures)
 	for f: String in failures:
 		print("SELFTEST FAIL | %s" % f)
@@ -199,6 +200,98 @@ func _test_flat_pack_archive(installer: Script, failures: Array[String]) -> void
 	_remove_test_tree(test_root.path_join(".tcv-community-staging"), test_root)
 	DirAccess.remove_absolute(test_root)
 	if FileAccess.file_exists(zip_path): DirAccess.remove_absolute(zip_path)
+
+
+# a real deflated ZIP, read back the way the browser reads GameBanana: index off
+# the tail, configs through a multipart/byteranges body built from the ranges the
+# planner asked for.
+func _run_character_peek_tests(failures: Array[String]) -> void:
+	var peek: Script = load("res://net/pack_character_peek.gd")
+	if peek == null:
+		failures.append("character peek did not compile")
+		return
+	var files: Dictionary = {
+		"pack/dub_video.ogv": "video",
+		"pack/01.wav": "a",
+		"pack/01.ini": "[data]\ncaption=\"hi\"\ndub_characters=[\"Alice\", \"Bob\"]\n",
+		"pack/02.wav": "b",
+		"pack/02.txt": "just a caption, no config",
+		"pack/03.mp3": "c",
+		"pack/03.cfg": "[data]\ndub_characters=[\"Bob\",\n\"Carol \\\"C\\\"\"]\n",
+		"pack/_backing_track.ogg": "d",
+		"pack/_backing_track.ini": "[data]\ndub_characters=[\"Nobody\"]\n",
+		"pack/notes.txt": "[other]\ndub_characters=[\"Wrong section\"]\n",
+		"elsewhere/04.wav": "e",
+		"elsewhere/04.ini": "[data]\ndub_characters=[\"Outside root\"]\n",
+	}
+	var zip_path: String = "user://character-peek-selftest.zip"
+	var packer: = ZIPPacker.new()
+	if packer.open(zip_path) != OK:
+		failures.append("could not create character peek fixture")
+		return
+	for path: String in files:
+		packer.start_file(path)
+		packer.write_file(str(files[path]).to_utf8_buffer())
+		packer.close_file()
+	packer.close()
+	var zip: PackedByteArray = FileAccess.get_file_as_bytes(zip_path)
+	DirAccess.remove_absolute(zip_path)
+
+	var tail_start: int = maxi(0, zip.size() - peek.TAIL_BYTES)
+	var eocd: Dictionary = peek.parse_end_of_directory(zip.slice(tail_start))
+	if eocd.has("error"):
+		failures.append("character peek EOCD: %s" % str(eocd["error"]))
+		return
+	var offset: int = int(eocd["offset"])
+	var parsed: Dictionary = peek.parse_central_directory(
+		zip.slice(offset, offset + int(eocd["size"])), int(eocd["entries"]))
+	var entries: Array[Dictionary] = []
+	for value: Variant in Array(parsed.get("entries", [])):
+		if value is Dictionary: entries.append(value)
+	var selection: Dictionary = peek.select_clip_configs(entries)
+	var configs: Array[Dictionary] = []
+	for value: Variant in Array(selection.get("configs", [])):
+		if value is Dictionary: configs.append(value)
+	# 02.txt is only a caption, but the game still tries it as the clip's config.
+	if int(selection.get("clips", 0)) != 3 or configs.size() != 3:
+		failures.append("character peek clip/config selection: %s" % str(selection))
+		return
+	for config: Dictionary in configs:
+		if int(config["method"]) != 8: failures.append("character peek fixture was not deflated")
+
+	var boundary: String = "SELFTESTBOUNDARY"
+	var body: = PackedByteArray()
+	for batch: Variant in peek.plan_ranges(configs, zip.size()):
+		for span: Vector2i in batch:
+			body.append_array(("\r\n--%s\r\nContent-Type: application/zip\r\nContent-Range: bytes %d-%d/%d\r\n\r\n"
+				% [boundary, span.x, span.y, zip.size()]).to_ascii_buffer())
+			body.append_array(zip.slice(span.x, span.y + 1))
+	body.append_array(("\r\n--%s--\r\n" % boundary).to_ascii_buffer())
+	var parts: Array[Dictionary] = peek.parse_range_response(
+		PackedStringArray(["Content-Type: multipart/byteranges; boundary=" + boundary]), body)
+	var texts: Array[String] = []
+	for config: Dictionary in configs:
+		for part: Dictionary in parts:
+			var data: PackedByteArray = peek.extract_entry(int(part["start"]), part["data"], config)
+			if not data.is_empty():
+				texts.append(data.get_string_from_utf8())
+				break
+	var summary: Dictionary = peek.summarize(3, texts)
+	if (Array(summary.get("characters", [])) != ["Alice", "Bob", "Carol \"C\""]
+		or int(summary.get("tagged_clips", 0)) != 2):
+		failures.append("character peek summary: %s" % str(summary))
+
+	var single: Array[Dictionary] = peek.parse_range_response(
+		PackedStringArray(["Content-Range: bytes 10-13/99"]), PackedByteArray([1, 2, 3, 4]))
+	if single.size() != 1 or int(single[0]["start"]) != 10:
+		failures.append("character peek single-range response")
+	if not peek.characters_from_config("dub_characters=[\"No section\"]").is_empty():
+		failures.append("character peek read a key outside [data]")
+	if not peek._trusted_download_url("https://filecache45.gamebanana.com/mods/x.zip") \
+		or peek._trusted_download_url("https://gamebanana.com.evil.example/x.zip") \
+		or peek._trusted_download_url("http://files.gamebanana.com/x.zip"):
+		failures.append("character peek redirect allow-list")
+	if failures.is_empty(): print("SELFTEST PASS | community pack character counting")
 
 
 func _remove_test_tree(path: String, allowed_root: String) -> void:
