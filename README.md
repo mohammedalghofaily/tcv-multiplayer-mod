@@ -203,8 +203,7 @@ prefix's `AppData/Roaming/YeahMaybe/ChoicerVoicer` instead; copy
 
 A Linux player and a Windows player can be in the same lobby as long as
 you're both on the same game version and the same mod build. It's the same
-netcode on both ends. The headless host/client test passes on Linux, but a
-real match between a Linux and a Windows machine hasn't been played yet.
+netcode on both ends. Windows and Linux can play together, confirmed.
 
 ## setting up a game
 
@@ -827,8 +826,7 @@ against a clean decompile with the node path fix applied.
   restarts canceled downloads rather than resuming their partial files.
 - Windows 0.5.1, 0.5.2 dev-2, and 0.5.3, and Linux 0.5.3. Anything else fails
   with a clear error when it goes to patch it.
-- Linux builds are x86_64 only, and Linux-to-Windows matches haven't had much
-  testing yet.
+- Linux builds are x86_64 only, and Linux and Windows users CAN play together.
 - Everyone needs the same build. The mod checks and kicks you out with a message
   if you don't, but it can't mix a 0.5.1 host with a 0.5.2 or 0.5.3 client.
 - Twitch modes are singleplayer, haven't touched them.
